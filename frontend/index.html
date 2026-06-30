@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Multi-Agent Document Processing</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Master Agent System</p>
+        <h1>Document Processing PoC</h1>
+      </div>
+      <div class="status" id="serviceStatus">Checking service</div>
+    </header>
+
+    <main class="workspace">
+      <section class="input-panel" aria-labelledby="inputTitle">
+        <div class="section-heading">
+          <h2 id="inputTitle">
+            Document Input
+            <span class="tooltip" tabindex="0" aria-label="Upload any readable file or paste text. The system detects the source format and business document type automatically.">?</span>
+          </h2>
+        </div>
+
+        <p class="panel-note">Upload a file, then click Analyze. CSV, TXT, JSON, XML, HTML, logs, and selectable-text PDFs are detected from content.</p>
+
+        <form id="analysisForm">
+          <label for="documentFile">
+            Upload file
+            <span class="tooltip" tabindex="0" aria-label="After choosing a file, the file is ready for analysis. Text files and CSV files also show a preview below.">?</span>
+          </label>
+          <input id="documentFile" name="file" type="file" />
+          <div id="fileStatus" class="file-status">
+            <strong>No file selected</strong>
+            <span>Choose a file or paste text below.</span>
+          </div>
+
+          <label for="documentText">
+            Text or preview
+            <span class="tooltip" tabindex="0" aria-label="For uploaded CSV/TXT-style files this area shows a preview. If no file is selected, pasted text is analyzed directly.">?</span>
+          </label>
+          <textarea id="documentText" name="text" rows="15" placeholder="Paste text here, or choose a CSV/TXT-style file to preview it"></textarea>
+
+          <div class="actions">
+            <button class="primary" type="submit" id="analyzeBtn">Analyze</button>
+            <button class="secondary" type="button" id="clearBtn">Clear</button>
+          </div>
+
+          <div class="sample-strip" aria-label="Load sample data">
+            <span>Samples</span>
+            <button class="secondary compact" type="button" data-sample="invoice">Invoice text</button>
+            <button class="secondary compact" type="button" data-sample="good-csv">Good CSV</button>
+            <button class="secondary compact" type="button" data-sample="error-csv">Error CSV</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="result-panel" aria-labelledby="resultTitle">
+        <div class="section-heading">
+          <h2 id="resultTitle">
+            Analysis Report
+            <span class="tooltip" tabindex="0" aria-label="Shows classification, masked PII, agent trace, token reduction, cache state, and recommendations.">?</span>
+          </h2>
+          <button class="secondary" type="button" id="exportBtn" disabled>Export PDF</button>
+        </div>
+
+        <div id="emptyState" class="empty-state">
+          Run an analysis to see classification, agent trace, token reduction, and cache status.
+        </div>
+
+        <article id="report" class="report" hidden>
+          <div class="summary-grid">
+            <div>
+              <span>Document type <span class="tooltip" tabindex="0" aria-label="Classification produced by the Application Agent.">?</span></span>
+              <strong id="documentType">-</strong>
+            </div>
+            <div>
+              <span>Cache <span class="tooltip" tabindex="0" aria-label="Hit means repeated input skipped the full agent workflow.">?</span></span>
+              <strong id="cacheState">-</strong>
+            </div>
+            <div>
+              <span>Reduced tokens <span class="tooltip" tabindex="0" aria-label="Estimated reduced tokens compared with original document tokens.">?</span></span>
+              <strong id="tokenMetric">-</strong>
+            </div>
+            <div>
+              <span>Detected source <span class="tooltip" tabindex="0" aria-label="Source format inferred from file extension, content type, and file content.">?</span></span>
+              <strong id="sourceType">-</strong>
+            </div>
+          </div>
+
+          <section>
+            <h3>
+              Summary
+              <span class="tooltip" tabindex="0" aria-label="Generated from masked, reduced context. Markdown headings are formatted for readability.">?</span>
+            </h3>
+            <div id="summaryText" class="summary-content"></div>
+          </section>
+
+          <section>
+            <h3>
+              Extracted Fields
+              <span class="tooltip" tabindex="0" aria-label="High-confidence fields found by the Application Agent.">?</span>
+            </h3>
+            <dl id="fieldsList" class="fields-list"></dl>
+          </section>
+
+          <section>
+            <h3>
+              PII Findings
+              <span class="tooltip" tabindex="0" aria-label="Sensitive values detected and masked before LLM processing.">?</span>
+            </h3>
+            <ul id="piiList" class="plain-list"></ul>
+          </section>
+
+          <section>
+            <h3>
+              Agent Trace
+              <span class="tooltip" tabindex="0" aria-label="Step-by-step execution path for interview explanation and debugging.">?</span>
+            </h3>
+            <ol id="traceList" class="trace-list"></ol>
+          </section>
+
+          <section>
+            <h3>
+              Token Tree
+              <span class="tooltip" tabindex="0" aria-label="Cache-first and reduce-before-LLM flow for lower token usage.">?</span>
+            </h3>
+            <pre id="tokenTree"></pre>
+          </section>
+
+          <section>
+            <h3>Recommendations</h3>
+            <ul id="recommendationsList" class="plain-list"></ul>
+          </section>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

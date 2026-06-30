@@ -1,0 +1,5 @@
+invoice_number,invoice_date,vendor,purchase_order,material,total_amount,currency,contact_email,status
+INV-2048,2026-06-30,Northwind Components Pvt Ltd,PO-77891,MAT-7788,248750.00,INR,finance@northwind.example,Ready for validation
+INV-2049,2026-06-29,Apex Industrial Supplies,PO-77892,MAT-4491,87500.00,INR,accounts@apex.example,Ready for validation
+INV-2050,2026-06-28,MetroTech Services,PO-77893,MAT-9920,151250.00,INR,billing@metrotech.example,Ready for validation
+INV-2051,2026-06-27,BlueRiver Logistics,PO-77894,MAT-1180,64200.00,INR,finance@blueriver.example,Ready for validation

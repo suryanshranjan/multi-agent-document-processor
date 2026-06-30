@@ -1,0 +1,6 @@
+invoice_number,invoice_date,vendor,purchase_order,material,total_amount,currency,contact_email,status
+INV-3001,2026-06-31,,PO-90001,MAT-1001,12000.00,INR,finance@example.com,Missing vendor and invalid date
+,2026-06-25,Faulty Components Ltd,PO-90002,MAT-1002,not_available,INR,accounts@faulty.example,Missing invoice number and invalid amount
+INV-3003,2026/13/01,DataWorks Services,,MAT-1003,-4500.00,INR,billing@dataworks.example,Invalid date and negative amount
+INV-3003,2026/13/01,DataWorks Services,,MAT-1003,-4500.00,INR,billing@dataworks.example,Duplicate row
+INV-3005,2026-06-24,Secure Parts Pvt Ltd,PO-90005,MAT-1005,75000.00,INR,user@example.com PAN ABCDE1234F,PII mixed into email column
