@@ -15,6 +15,56 @@ class ApplicationResult:
 
 
 class ApplicationAgent:
+    # Fields each document type should have. Anything the rules miss is handed to the LLM fallback.
+    EXPECTED_FIELDS: dict[str, tuple[str, ...]] = {
+        "Invoice": ("invoice_number", "date", "total_amount", "vendor"),
+        "ERP": ("purchase_order", "material", "vendor"),
+    }
+
+    def missing_fields(self, document_type: str, fields: dict[str, str]) -> list[str]:
+        return [name for name in self.EXPECTED_FIELDS.get(document_type, ()) if name not in fields]
+
+    def validate_llm_fields(
+        self, candidates: dict[str, str], source_text: str, wanted: list[str]
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """Accept LLM-extracted values only if they are grounded in the text and well-formed.
+
+        Returns (accepted, rejected) where rejected maps field -> reason.
+        """
+        haystack = " ".join(source_text.split()).lower()
+        accepted: dict[str, str] = {}
+        rejected: dict[str, str] = {}
+        for name, raw in candidates.items():
+            if name not in wanted:
+                continue
+            value = " ".join(raw.split()).strip(" .,;")
+            if not value or len(value) > 80:
+                rejected[name] = "empty or too long"
+            elif "MASKED]" in value.upper():
+                rejected[name] = "contains masked PII placeholder"
+            elif value.lower() not in haystack:
+                rejected[name] = "not found in document (possible hallucination)"
+            elif not self._valid_field_format(name, value):
+                rejected[name] = "invalid format"
+            else:
+                accepted[name] = value
+        return accepted, rejected
+
+    def _valid_field_format(self, name: str, value: str) -> bool:
+        if name in {"invoice_number", "purchase_order", "material"}:
+            return bool(re.fullmatch(r"[A-Z0-9][A-Z0-9/-]{2,29}", value, re.I)) and any(c.isdigit() for c in value)
+        if name == "total_amount":
+            number = re.sub(r"^(?:rs\.?|inr|usd|\$|₹)\s*", "", value, flags=re.I).replace(",", "")
+            try:
+                return float(number) > 0
+            except ValueError:
+                return False
+        if name == "date":
+            return self._looks_like_date(value)
+        if name == "vendor":
+            return len(value) >= 3 and any(c.isalpha() for c in value)
+        return True
+
     def analyze(self, text: str) -> ApplicationResult:
         lowered = text.lower()
         tabular = self._analyze_tabular(text)

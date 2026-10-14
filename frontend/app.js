@@ -29,6 +29,16 @@ Grand Total: INR 248,750.00
 Material: MAT-7788
 This invoice is generated from the ERP procurement workflow for validation and payment processing.`;
 
+// Labels the regex rules don't recognise, so the LLM extraction fallback kicks in.
+const unusualInvoiceSample = `TAX INVOICE
+Bill No: B-5521
+Dated: 12/03/2026
+Seller: Acme Traders LLP
+Billed To: Riverside Retail
+Item: Office chairs x 8
+Net Payable: 12,400.00
+Queries: accounts@acmetraders.example`;
+
 const goodCsvSample = `invoice_number,invoice_date,vendor,purchase_order,material,total_amount,currency,contact_email,status
 INV-2048,2026-06-30,Northwind Components Pvt Ltd,PO-77891,MAT-7788,248750.00,INR,finance@northwind.example,Ready for validation
 INV-2049,2026-06-29,Apex Industrial Supplies,PO-77892,MAT-4491,87500.00,INR,accounts@apex.example,Ready for validation
@@ -127,7 +137,7 @@ function fillList(element, values, emptyText) {
   }
 }
 
-function renderFields(fields) {
+function renderFields(fields, sources = {}) {
   const list = document.querySelector("#fieldsList");
   list.innerHTML = "";
   const entries = Object.entries(fields || {});
@@ -144,6 +154,13 @@ function renderFields(fields) {
     const dd = document.createElement("dd");
     dt.textContent = key.replaceAll("_", " ");
     dd.textContent = value;
+    if (sources[key] === "llm") {
+      const badge = document.createElement("span");
+      badge.className = "source-badge";
+      badge.textContent = "LLM";
+      badge.title = "Missed by the rules, extracted by the LLM and validated against the document";
+      dd.append(" ", badge);
+    }
     list.append(dt, dd);
   }
 }
@@ -256,7 +273,7 @@ function renderReport(data) {
   renderSummary(data.summary);
   document.querySelector("#tokenTree").textContent = data.token_tree;
 
-  renderFields(data.extracted_fields);
+  renderFields(data.extracted_fields, data.field_sources);
   fillList(
     document.querySelector("#piiList"),
     (data.pii_findings || []).map((item) => `${item.type}: ${item.count} masked as ${item.masked_value}`),
@@ -316,6 +333,8 @@ async function loadSample(button) {
       textInput.value = goodCsvSample;
     } else if (sampleType === "error-csv") {
       textInput.value = errorCsvSample;
+    } else if (sampleType === "unusual-invoice") {
+      textInput.value = unusualInvoiceSample;
     } else {
       textInput.value = sampleDocument;
     }

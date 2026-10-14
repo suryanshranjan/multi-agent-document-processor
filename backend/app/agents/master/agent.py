@@ -23,6 +23,7 @@ class MasterAgent:
       +- Sanitize
       +- Mask PII
       +- Classify document
+      +- Fields missing? -> LLM extracts them -> validate against source
       +- Route reduced masked text to LLM provider
       +- Validate with guardrails
       +- Save result to cache"""
@@ -88,12 +89,15 @@ class MasterAgent:
             "Classified document and extracted application fields.",
             lambda: self.application.analyze(security.masked_text),
         )
-        reduced_text = self._reduce_for_llm(security.masked_text, application.extracted_fields)
         provider_name = getattr(self.llm_provider, "name", self.llm_provider.__class__.__name__)
+        fields, field_sources, llm_requested, llm_rejected = self._fill_missing_fields(
+            monitor, provider_name, application.document_type, application.extracted_fields, security.masked_text
+        )
+        reduced_text = self._reduce_for_llm(security.masked_text, fields)
         summary = monitor.run_step(
             provider_name,
             "Generated pluggable-LLM summary from reduced masked context.",
-            lambda: self.llm_provider.summarize(application.document_type, reduced_text, application.extracted_fields),
+            lambda: self.llm_provider.summarize(application.document_type, reduced_text, fields),
         )
         output_warnings = monitor.run_step(
             "GuardrailsAgent",
@@ -111,7 +115,8 @@ class MasterAgent:
             summary=summary,
             sanitized_preview=self._preview(sanitized.cleaned_text),
             masked_text_preview=self._preview(security.masked_text),
-            extracted_fields=application.extracted_fields,
+            extracted_fields=fields,
+            field_sources=field_sources,
             pii_findings=security.findings,
             recommendations=self._recommendations(application.document_type, bool(security.findings)),
             trace=monitor.trace,
@@ -128,10 +133,45 @@ class MasterAgent:
                 "classification_confidence": application.confidence,
                 "removed_duplicate_lines": sanitized.removed_duplicate_lines,
                 "llm_provider": provider_name,
+                "llm_fields_requested": llm_requested,
+                "llm_fields_accepted": [name for name, source in field_sources.items() if source == "llm"],
+                "llm_fields_rejected": llm_rejected,
             },
         )
         self.cache.set(cache_key, self._model_to_dict(response))
         return response
+
+    def _fill_missing_fields(
+        self,
+        monitor: MonitoringAgent,
+        provider_name: str,
+        document_type: str,
+        rule_fields: dict[str, str],
+        masked_text: str,
+    ) -> tuple[dict[str, str], dict[str, str], list[str], dict[str, str]]:
+        """LLM extraction fallback: ask the LLM only for fields the rules missed, then validate them."""
+        fields = dict(rule_fields)
+        sources = {name: "rules" for name in fields}
+        missing = self.application.missing_fields(document_type, fields)
+        if not missing:
+            return fields, sources, [], {}
+
+        candidates = monitor.run_step(
+            f"{provider_name}.extract_fields",
+            f"Asked LLM for fields the rules missed: {', '.join(missing)}.",
+            lambda: self.llm_provider.extract_fields(document_type, masked_text[:6_000], missing),
+        )
+        accepted, rejected = monitor.run_step(
+            "ApplicationAgent.validate",
+            "Validated LLM-extracted fields against the source text.",
+            lambda: self.application.validate_llm_fields(candidates, masked_text, missing),
+        )
+        for name, value in accepted.items():
+            fields[name] = value
+            sources[name] = "llm"
+        for name, reason in rejected.items():
+            monitor.warn(f"Rejected LLM value for {name}: {reason}.")
+        return fields, sources, missing, rejected
 
     def _reduce_for_llm(self, text: str, fields: dict[str, str]) -> str:
         lines = [line.strip() for line in text.splitlines() if line.strip()]

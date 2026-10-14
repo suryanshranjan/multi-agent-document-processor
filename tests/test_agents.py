@@ -91,6 +91,61 @@ class AgentTests(unittest.TestCase):
         self.assertTrue(second.cache_hit)
         self.assertEqual(first.document_type, "Invoice")
 
+    def test_validator_accepts_only_grounded_well_formed_values(self):
+        text = "Bill No: B-5521\nDated: 12/03/2026\nSeller: Acme Traders\nNet Payable: 12,400\nContact: [EMAIL_MASKED]"
+        accepted, rejected = ApplicationAgent().validate_llm_fields(
+            {
+                "invoice_number": "B-5521",
+                "date": "31/02/2026",
+                "vendor": "Globex Corp",
+                "total_amount": "12,400",
+                "material": "[EMAIL_MASKED]",
+            },
+            text,
+            ["invoice_number", "date", "vendor", "total_amount", "material"],
+        )
+        self.assertEqual(accepted, {"invoice_number": "B-5521", "total_amount": "12,400"})
+        self.assertIn("hallucination", rejected["vendor"])
+        self.assertIn("masked", rejected["material"])
+        self.assertIn("date", rejected)
+
+    def test_master_fills_fields_the_rules_missed_via_llm_fallback(self):
+        text = "Tax Invoice\nBill No: B-5521\nDated: 12/03/2026\nSeller: Acme Traders\nNet Payable: 12,400"
+        response = MasterAgent(cache=CacheStore(), llm_provider=MockLLMProvider()).analyze(text=text)
+        self.assertEqual(response.document_type, "Invoice")
+        self.assertEqual(
+            response.extracted_fields,
+            {"invoice_number": "B-5521", "date": "12/03/2026", "total_amount": "12,400", "vendor": "Acme Traders"},
+        )
+        self.assertEqual(set(response.field_sources.values()), {"llm"})
+        self.assertTrue(any(step.agent == "MockLLMProvider.extract_fields" for step in response.trace))
+
+    def test_master_skips_llm_fallback_when_rules_found_everything(self):
+        text = "Invoice No: INV-9\nInvoice Date: 01/02/2026\nVendor: Acme\nGrand Total: 500"
+        response = MasterAgent(cache=CacheStore(), llm_provider=MockLLMProvider()).analyze(text=text)
+        self.assertEqual(response.metrics["llm_fields_requested"], [])
+        self.assertEqual(set(response.field_sources.values()), {"rules"})
+
+    def test_master_rejects_hallucinated_llm_fields(self):
+        class HallucinatingProvider(MockLLMProvider):
+            def extract_fields(self, document_type, masked_text, wanted_fields):
+                return {"vendor": "Made Up Industries", "invoice_number": "B-5521"}
+
+        text = "Tax Invoice\nBill No: B-5521\nGrand Total: 900"
+        response = MasterAgent(cache=CacheStore(), llm_provider=HallucinatingProvider()).analyze(text=text)
+        self.assertEqual(response.extracted_fields.get("invoice_number"), "B-5521")
+        self.assertNotIn("vendor", response.extracted_fields)
+        self.assertIn("vendor", response.metrics["llm_fields_rejected"])
+        self.assertTrue(any("Rejected LLM value for vendor" in warning for warning in response.warnings))
+
+    def test_nim_extract_fields_parses_json_reply(self):
+        provider = NvidiaNimProvider(api_key="test-key")
+        reply = '```json\n{"invoice_number": "B-5521", "vendor": null, "extra": "x"}\n```'
+        with patch.object(provider, "_chat", return_value=reply):
+            self.assertEqual(provider.extract_fields("Invoice", "text", ["invoice_number", "vendor"]), {"invoice_number": "B-5521"})
+        with patch.object(provider, "_chat", side_effect=OSError("offline")):
+            self.assertEqual(provider.extract_fields("Invoice", "text", ["vendor"]), {})
+
     def test_llm_provider_defaults_to_mock_without_key(self):
         with patch.dict("os.environ", {}, clear=True):
             self.assertIsInstance(get_default_llm_provider(), MockLLMProvider)

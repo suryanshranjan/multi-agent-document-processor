@@ -28,6 +28,7 @@ class AnalysisResponse(BaseModel):
     sanitized_preview: str
     masked_text_preview: str
     extracted_fields: dict[str, str] = Field(default_factory=dict)
+    field_sources: dict[str, str] = Field(default_factory=dict)
     pii_findings: list[PIIFinding] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
     trace: list[AgentTrace] = Field(default_factory=list)
