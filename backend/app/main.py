@@ -7,6 +7,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
 from backend.app.agents.master.agent import MasterAgent
 from backend.app.core.cache import CacheStore
 from backend.app.schemas import AnalysisResponse, HealthResponse

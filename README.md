@@ -1,116 +1,190 @@
-# Multi-Agent Document Processing PoC
+# 🤖 Multi-Agent Document Processor
 
-Generalized master-agent/sub-agent project for interview presentation and demo. It processes enterprise document text or selectable-text PDFs, masks sensitive data, classifies Invoice/ERP/General documents, reduces text before LLM usage, caches repeated analyses, and exports a browser report to PDF.
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
+![NVIDIA NIM](https://img.shields.io/badge/LLM-NVIDIA%20NIM-76B900?logo=nvidia&logoColor=white)
+![Redis](https://img.shields.io/badge/Cache-Redis%20%7C%20in--memory-DC382D?logo=redis&logoColor=white)
+![Tests](https://github.com/suryanshranjan/multi-agent-document-processor/actions/workflows/tests.yml/badge.svg)
 
-## Architecture
+A **master / sub-agent** system that processes enterprise documents (invoices,
+ERP exports, CSVs, PDFs, plain text) **safely and cheaply** before an LLM ever
+sees them.
 
-```text
-User input
-+- FastAPI backend
-|  +- Master Agent
-|  +- Sanitation Agent
-|  +- Security Agent
-|  +- Application Agent
-|  +- Guardrails Agent
-|  +- Monitoring Agent
-+- Cache layer
-+- Minimal web UI
+A **Master Agent** orchestrates five specialised sub-agents. Together they
+clean the input, **mask PII**, classify the document, extract key fields and
+**shrink the text before it reaches the LLM**. They also run guardrail checks
+on both the input and the output. Results are cached, so a repeated document
+costs zero LLM calls.
+
+---
+
+## ✨ Features
+
+| | |
+|---|---|
+| 🧭 **Master–agent orchestration** | One coordinator routes work through specialised, independently testable agents |
+| 🔒 **PII masking** | Emails, phone numbers, Aadhaar, PAN and bank account numbers are masked *before* any LLM call |
+| 🗂️ **Document classification** | Invoice, ERP, Invoice/ERP dataset, tabular dataset or general document, with a confidence score |
+| ✂️ **Token reduction** | Only the relevant masked lines plus extracted fields go to the LLM; the original and reduced token counts are both reported |
+| 🛡️ **Guardrails** | Size limits and prompt-injection detection on input; leaked-PII checks on output |
+| ⚡ **Cache-first routing** | Content-hash cache (in-memory or Redis): a repeated document returns instantly |
+| 🔌 **Pluggable LLM** | NVIDIA NIM out of the box, with automatic fallback to a mock provider, so it runs offline with no API key |
+| 📊 **Observability** | A per-agent execution trace with timings, warnings and metrics |
+| 🖥️ **Web UI** | Upload or paste a document, inspect every stage, export the report as PDF |
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart TD
+    U[User / Web UI] -->|text or file| API[FastAPI /api/analyze]
+    API --> M[Master Agent]
+    M --> L[Document Loader<br/>CSV · TXT · JSON · PDF]
+    L --> G1[Guardrails Agent<br/>input checks]
+    G1 --> C{Cache<br/>hit?}
+    C -- yes --> R[Return cached result]
+    C -- no --> S[Sanitation Agent<br/>normalise · dedupe]
+    S --> SEC[Security Agent<br/>mask PII]
+    SEC --> APP[Application Agent<br/>classify · extract fields]
+    APP --> RED[Reduce text for LLM]
+    RED --> LLM[LLM Provider<br/>NVIDIA NIM / Mock]
+    LLM --> G2[Guardrails Agent<br/>output checks]
+    G2 --> SAVE[Save to cache] --> OUT[Response + trace]
+    MON[Monitoring Agent] -. times & traces every step .- M
 ```
 
-Each agent lives in its own folder under `backend/app/agents/` to keep the system easy to extend.
+| Agent | Responsibility |
+|---|---|
+| **Master** | Orchestrates the pipeline, handles cache-first routing, assembles the final response and metrics |
+| **Sanitation** | Normalises whitespace and line endings, removes duplicate lines |
+| **Security** | Regex-based detection and masking of PII |
+| **Application** | Classifies the document type and extracts fields (invoice no., amount, vendor, PO, material…); profiles CSV data |
+| **Guardrails** | Blocks oversized and prompt-injection input; flags unmasked PII in the output |
+| **Monitoring** | Times every step and collects the trace and warnings |
 
-## Run
+---
 
-### Option 1: backend serves everything
+## 📁 Project structure
 
-```powershell
-python -m pip install -r backend/requirements.txt
+```
+├── backend/
+│   ├── requirements.txt
+│   └── app/
+│       ├── main.py                 # FastAPI app + static frontend serving
+│       ├── schemas.py              # Pydantic response models
+│       ├── agents/
+│       │   ├── master/             # Orchestrator
+│       │   ├── sanitation/
+│       │   ├── security/
+│       │   ├── application/
+│       │   ├── guardrails/
+│       │   └── monitoring/
+│       └── core/
+│           ├── cache.py            # In-memory / Redis cache
+│           ├── document_loader.py  # Text, CSV, PDF extraction
+│           └── llm_provider.py     # LLMProvider protocol, NVIDIA NIM, Mock
+├── frontend/                       # Vanilla HTML/CSS/JS UI
+├── samples/                        # Clean + error-laden invoice/ERP CSVs
+├── tests/                          # Agent + API tests
+└── docs/                           # Design documentation (PDF)
+```
+
+---
+
+## 🚀 Quick start
+
+```bash
+git clone https://github.com/suryanshranjan/multi-agent-document-processor.git
+cd multi-agent-document-processor
+
+python -m venv venv
+# Windows: venv\Scripts\activate    macOS/Linux: source venv/bin/activate
+pip install -r backend/requirements.txt
+
 python -m uvicorn backend.app.main:app --reload --port 8000
 ```
 
-Open `http://127.0.0.1:8000`.
+Open **http://127.0.0.1:8000**. The backend serves the UI too.
 
-If the Windows Store Python shim is active, use the direct Python install:
+![Web UI](docs/screenshot.png)
 
-```powershell
-C:\Users\HP\AppData\Local\Programs\Python\Python313\python.exe -m uvicorn backend.app.main:app --reload --port 8000
+It works immediately with the **mock LLM provider**, so no API key is needed.
+
+### Use a real LLM (NVIDIA NIM)
+
+```bash
+cp .env.example .env     # Windows: copy .env.example .env
 ```
 
-### Option 2: run backend and frontend separately
+Then set `NVIDIA_NIM_API_KEY` in `.env` and restart the server.
+If NIM is unreachable during a request, the app falls back to the mock provider instead of failing.
 
-Terminal 1, backend:
+| Variable | Default | Purpose |
+|---|---|---|
+| `NVIDIA_NIM_API_KEY` | *(unset → mock)* | Enables the NVIDIA NIM provider |
+| `NVIDIA_NIM_MODEL` | `meta/llama-3.1-8b-instruct` | Model name |
+| `NVIDIA_NIM_BASE_URL` | `https://integrate.api.nvidia.com/v1` | OpenAI-compatible endpoint |
+| `REDIS_URL` | *(unset → in-memory)* | e.g. `redis://localhost:6379/0` |
 
-```powershell
-cd C:\Users\HP\Desktop\KMP
-$env:NVIDIA_NIM_API_KEY="your-key-here"
-$env:NVIDIA_NIM_MODEL="meta/llama-3.1-8b-instruct"
-C:\Users\HP\AppData\Local\Programs\Python\Python313\python.exe -m uvicorn backend.app.main:app --reload --port 8000
+> `.env` is in `.gitignore`, so your keys never get committed.
+
+### Run the frontend separately (optional)
+
+```bash
+python -m http.server 5173 --directory frontend
 ```
 
-Terminal 2, frontend:
+Open http://127.0.0.1:5173. The UI calls the backend on port 8000 automatically.
 
-```powershell
-cd C:\Users\HP\Desktop\KMP
-C:\Users\HP\AppData\Local\Programs\Python\Python313\python.exe -m http.server 5173 --directory frontend
+---
+
+## 🔌 API
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/health` | Service status and active cache backend |
+| `GET` | `/api/cache/stats` | Cache hits, misses and entry count |
+| `POST` | `/api/analyze` | Analyse a document (JSON `{"text": ...}` or multipart `text` + `file`) |
+| `GET` | `/docs` | Interactive Swagger UI |
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Tax Invoice No: INV-1042\nGrand Total: 45,000\nContact: billing@acme.com\nVendor: Acme Ltd"}\'
 ```
 
-Open `http://127.0.0.1:5173`.
+The response includes `document_type`, `summary`, `extracted_fields`, `pii_findings`,
+`masked_text_preview`, a per-agent `trace`, `warnings`, `recommendations`, and
+`metrics` (original vs reduced token estimates, confidence, cache hit or miss).
 
-When the frontend is not running on port `8000`, it automatically calls the backend at `http://127.0.0.1:8000`.
+---
 
-## NVIDIA NIM
+## 🎬 Demo flow
 
-The app runs with the mock provider by default. To use NVIDIA NIM, set the key in your terminal before starting the server:
+1. Upload `samples/good_invoice_erp_sample.csv`, or paste invoice text.
+2. Click **Analyze**. The result is a cache **miss**, and the full agent trace is shown.
+3. Review the classification, masked PII, extracted fields and the token reduction.
+4. Analyze the same input again. This time it's a cache **hit**, returned instantly with no LLM call.
+5. Try `samples/error_invoice_erp_sample.csv` to see the `data_quality_flags`: missing values, duplicates, bad dates and negative amounts.
+6. Export the report with the **PDF** button.
 
-```powershell
-$env:NVIDIA_NIM_API_KEY="your-key-here"
-$env:NVIDIA_NIM_MODEL="meta/llama-3.1-8b-instruct"
-C:\Users\HP\AppData\Local\Programs\Python\Python313\python.exe -m uvicorn backend.app.main:app --reload --port 8000
+---
+
+## 🧪 Tests
+
+```bash
+python -m pytest -q
 ```
 
-Optional settings:
+GitHub Actions runs the test suite on every push.
 
-- `NVIDIA_NIM_BASE_URL`, default `https://integrate.api.nvidia.com/v1`
-- `NVIDIA_NIM_MODEL`, default `meta/llama-3.1-8b-instruct`
+---
 
-Do not commit real API keys. Use `.env.example` only as a template.
+## 🛣️ Roadmap
 
-## API
-
-- `GET /api/health`
-- `GET /api/cache/stats`
-- `POST /api/analyze`
-
-`POST /api/analyze` accepts either:
-
-- JSON: `{ "text": "Invoice No: INV-1 ..." }`
-- Multipart form: `text` plus optional `file`
-
-## Demo Flow
-
-1. Load the sample document in the UI.
-2. Run analysis and show cache miss.
-3. Review document classification, masked PII, extracted fields, agent trace, and token tree.
-4. Run the same input again and show cache hit.
-5. Export the report using the PDF button.
-
-## Sample Data
-
-Two CSV files are included for upload demos:
-
-- `samples/good_invoice_erp_sample.csv`: clean invoice/ERP rows.
-- `samples/error_invoice_erp_sample.csv`: missing values, duplicate row, invalid dates, invalid amount, negative amount, and PII-like content.
-
-## Tests
-
-```powershell
-python -m unittest discover -s tests
-```
-
-## Future Scope
-
-- Add more private/internal LLM providers behind `LLMProvider`.
-- Add OCR for scanned PDFs.
-- Add RAG/vector database support.
-- Add human-in-the-loop approval for sensitive workflows.
-- Add domain agents for finance, procurement, HR, and compliance documents.
+- More private/internal LLM providers behind the `LLMProvider` protocol
+- OCR for scanned PDFs
+- RAG / vector-store support for document Q&A
+- Human-in-the-loop approval for documents containing PII
+- Domain agents for finance, procurement, HR and compliance

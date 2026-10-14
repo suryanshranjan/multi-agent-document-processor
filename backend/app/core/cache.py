@@ -20,7 +20,7 @@ class CacheStore:
         self._hits = 0
         self._misses = 0
         self._redis = None
-        redis_url = os.getenv("KMP_REDIS_URL")
+        redis_url = os.getenv("REDIS_URL") or os.getenv("KMP_REDIS_URL")
         if redis_url:
             try:
                 import redis  # type: ignore
