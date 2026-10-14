@@ -13,16 +13,18 @@ class SecurityResult:
 
 
 class SecurityAgent:
+    # Order matters: labelled account numbers are masked before the generic
+    # 12-digit Aadhaar rule, otherwise they are misreported as Aadhaar.
     PATTERNS: tuple[tuple[str, str, str], ...] = (
         ("email", r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", "[EMAIL_MASKED]"),
-        ("aadhaar", r"\b\d{4}\s?\d{4}\s?\d{4}\b", "[AADHAAR_MASKED]"),
-        ("pan", r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", "[PAN_MASKED]"),
         (
             "account",
-            r"\b(?:account|acct|a/c)\s*(?:no\.?|number)?\s*[:#-]?\s*[0-9]{8,18}\b",
-            "account [ACCOUNT_MASKED]",
+            r"(\b(?:account|acct|a/c)\s*(?:no\.?|number)?\s*[:#-]?\s*)[0-9]{8,18}\b",
+            r"\1[ACCOUNT_MASKED]",
         ),
-        ("phone", r"(?<!\d)(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{3,5}\)?[-.\s]?){2,3}\d{3,4}(?!\d)", "[PHONE_MASKED]"),
+        ("aadhaar", r"(?<![+\d])\b[2-9]\d{3}\s?\d{4}\s?\d{4}\b", "[AADHAAR_MASKED]"),
+        ("pan", r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", "[PAN_MASKED]"),
+        ("phone", r"(?<![\w/(])(?:\+|\()?\d[\d ().-]{8,16}\d(?![\w/])", "[PHONE_MASKED]"),
     )
 
     def mask(self, text: str) -> SecurityResult:
@@ -30,16 +32,24 @@ class SecurityAgent:
         findings: list[PIIFinding] = []
         for pii_type, pattern, replacement in self.PATTERNS:
             regex = re.compile(pattern, flags=re.IGNORECASE)
-            matches = regex.findall(masked)
-            if not matches:
-                continue
-            masked = regex.sub(replacement, masked)
-            findings.append(
-                PIIFinding(
-                    type=pii_type,
-                    masked_value=replacement,
-                    count=len(matches),
-                )
-            )
-        return SecurityResult(masked_text=masked, findings=findings)
+            count = 0
 
+            def substitute(match: re.Match[str]) -> str:
+                nonlocal count
+                # Phone candidates must hold 10-13 digits, so dates, amounts and
+                # short IDs that happen to contain separators are left alone.
+                if pii_type == "phone" and not 10 <= sum(c.isdigit() for c in match.group(0)) <= 13:
+                    return match.group(0)
+                count += 1
+                return match.expand(replacement)
+
+            masked = regex.sub(substitute, masked)
+            if count:
+                findings.append(
+                    PIIFinding(
+                        type=pii_type,
+                        masked_value=f"[{pii_type.upper()}_MASKED]",
+                        count=count,
+                    )
+                )
+        return SecurityResult(masked_text=masked, findings=findings)

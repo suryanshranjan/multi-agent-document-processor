@@ -23,6 +23,31 @@ class AgentTests(unittest.TestCase):
         self.assertIn("[PAN_MASKED]", result.masked_text)
         self.assertTrue(any(item.type == "email" for item in result.findings))
 
+    def test_security_masks_indian_phone_formats(self):
+        for phone in ("+91 98765 43210", "+91-98765-43210", "9876543210", "(022) 2345 6789"):
+            with self.subTest(phone=phone):
+                result = SecurityAgent().mask(f"Phone: {phone}")
+                self.assertEqual(result.masked_text, "Phone: [PHONE_MASKED]")
+                self.assertEqual([item.type for item in result.findings], ["phone"])
+
+    def test_security_labels_account_number_as_account_not_aadhaar(self):
+        result = SecurityAgent().mask("Account Number: 123456789012\nAadhaar: 2345 6789 0123")
+        self.assertIn("Account Number: [ACCOUNT_MASKED]", result.masked_text)
+        self.assertIn("Aadhaar: [AADHAAR_MASKED]", result.masked_text)
+        self.assertEqual({item.type: item.count for item in result.findings}, {"account": 1, "aadhaar": 1})
+
+    def test_security_leaves_dates_amounts_and_ids_alone(self):
+        text = "Invoice No: INV-2048\nDate: 30/06/2026\nPosted: 2026-06-30\nPO: PO-77891\nGrand Total: INR 248,750.00"
+        result = SecurityAgent().mask(text)
+        self.assertEqual(result.masked_text, text)
+        self.assertEqual(result.findings, [])
+
+    def test_application_vendor_stops_at_next_field_on_single_line(self):
+        text = "Tax Invoice No: INV-1042  Vendor: Acme Ltd  Grand Total: 45,000"
+        self.assertEqual(ApplicationAgent().analyze(text).extracted_fields["vendor"], "Acme Ltd")
+        text = "Invoice No: INV-7 Vendor: Acme & Sons Pvt. Ltd Total: 900"
+        self.assertEqual(ApplicationAgent().analyze(text).extracted_fields["vendor"], "Acme & Sons Pvt. Ltd")
+
     def test_application_classifies_invoice(self):
         result = ApplicationAgent().analyze("Invoice No: INV-10\nVendor: Acme\nGrand Total: INR 1500")
         self.assertEqual(result.document_type, "Invoice")

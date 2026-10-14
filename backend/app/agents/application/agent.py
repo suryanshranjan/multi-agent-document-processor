@@ -146,7 +146,13 @@ class ApplicationAgent:
             "purchase_order": r"\b(?:po\s*(?:no\.?|number|#)?|purchase order\s*(?:no\.?|number|#)?)\s*[:#-]?\s*([A-Z0-9][A-Z0-9/-]{2,29})",
             "date": r"\b(?:date|invoice date|posting date)\s*[:#-]?\s*([0-3]?\d[-/][01]?\d[-/][12]\d{3}|[12]\d{3}[-/][01]?\d[-/][0-3]?\d)",
             "total_amount": r"\b(?:grand total|total amount|amount due|total)\s*[:#-]?\s*(?:rs\.?|inr|usd|\$)?\s*([0-9,]+(?:\.\d{1,2})?)",
-            "vendor": r"\b(?:vendor|supplier|bill from|from)\s*[:#-]\s*([A-Za-z0-9 .,&-]{3,80})",
+            # Lazy match that stops at a line break, a run of spaces, or the next known field label,
+            # so single-line documents don't pull the following field into the vendor name.
+            "vendor": (
+                r"\b(?:vendor|supplier|bill from|from)\s*[:#-]\s*([A-Za-z0-9 .,&-]{3,80}?)"
+                r"(?=[ \t]*(?:\n|$)|[ \t]{2,}|[ \t]+(?:grand total|total|amount|invoice|date|due date|po|"
+                r"purchase order|gst|gstin|contact|phone|email|bill to|ship to|material|address|tax)\b\s*[:#-])"
+            ),
             "material": r"\b(?:material|item code|sku)\s*[:#-]?\s*([A-Z0-9/-]{3,40})",
         }
         fields: dict[str, str] = {}
